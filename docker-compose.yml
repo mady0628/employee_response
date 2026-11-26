@@ -1,0 +1,145 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: sales_app
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: &rotated_logs
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  identity-service:
+    build:
+      context: .
+      args: { WORKSPACE: identity-service }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VERIFICATION_CODE_RATE_LIMIT: ${VERIFICATION_CODE_RATE_LIMIT:-100}
+      LOG_DIR: /app/logs/identity
+    volumes: [service_logs:/app/logs]
+    healthcheck: &node_health
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *rotated_logs
+
+  config-service:
+    build:
+      context: .
+      args: { WORKSPACE: config-service }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LOG_DIR: /app/logs/config
+    volumes: [service_logs:/app/logs]
+    healthcheck:
+      <<: *node_health
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    logging: *rotated_logs
+
+  conversation-service:
+    build:
+      context: .
+      args: { WORKSPACE: conversation-service }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://sales_app:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      IDENTITY_SERVICE_URL: http://identity-service:3001
+      LOG_DIR: /app/logs/conversation
+    volumes: [service_logs:/app/logs]
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      identity-service: { condition: service_healthy }
+    healthcheck:
+      <<: *node_health
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3004/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    logging: *rotated_logs
+
+  sla-service:
+    build:
+      context: .
+      args: { WORKSPACE: sla-service }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://sales_app:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      LOG_DIR: /app/logs/sla
+    volumes: [service_logs:/app/logs]
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      <<: *node_health
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3005/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    logging: *rotated_logs
+
+  reminder-service:
+    build:
+      context: .
+      args: { WORKSPACE: reminder-service }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      GATEWAY_SERVICE_URL: http://channel-gateway:3003
+      IDENTITY_SERVICE_URL: http://identity-service:3001
+      LOG_DIR: /app/logs/reminder
+    volumes: [service_logs:/app/logs]
+    depends_on:
+      identity-service: { condition: service_healthy }
+      channel-gateway: { condition: service_healthy }
+    healthcheck:
+      <<: *node_health
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3006/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    logging: *rotated_logs
+
+  channel-gateway:
+    build:
+      context: .
+      args:
+        WORKSPACE: channel-gateway
+        WITH_CHROMIUM: "true"
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://sales_app:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      IDENTITY_SERVICE_URL: http://identity-service:3001
+      CONFIG_SERVICE_URL: http://config-service:3002
+      CONVERSATION_SERVICE_URL: http://conversation-service:3004
+      SLA_SERVICE_URL: http://sla-service:3005
+      LOG_DIR: /app/logs/gateway
+    ports:
+      - "127.0.0.1:3003:3003"
+    volumes:
+      - service_logs:/app/logs
+      - whatsapp_auth:/app/.wwebjs_auth
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      identity-service: { condition: service_healthy }
+      config-service: { condition: service_healthy }
+      conversation-service: { condition: service_healthy }
+      sla-service: { condition: service_healthy }
+    healthcheck:
+      <<: *node_health
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    logging: *rotated_logs
+
+volumes:
+  rabbitmq_data:
+  service_logs:
+  whatsapp_auth:

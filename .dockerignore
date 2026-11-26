@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+apps/admin-dashboard
+.git
+.env
+.env.*
+!.env.example
+.wwebjs_auth
+.wwebjs_sessions
+.wwebjs_cache
+logs
+scratch
+coverage

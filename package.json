@@ -1,0 +1,23 @@
+{
+  "name": "sales-reminder-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-channel Sales SLA Reminder System",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "node tests/run-tests.js",
+    "test:all": "npm test && npm run test:dashboard",
+    "test:dashboard": "npm run build --workspace=admin-dashboard",
+    "dev:identity": "npm run dev --workspace=identity-service",
+    "dev:config": "npm run dev --workspace=config-service",
+    "dev:gateway": "npm run dev --workspace=channel-gateway",
+    "dev:conversation": "npm run dev --workspace=conversation-service",
+    "dev:sla": "npm run dev --workspace=sla-service",
+    "dev:reminder": "npm run dev --workspace=reminder-service",
+    "dev:whatsapp": "node apps/channel-gateway/src/channels/whatsapp/whatsapp.runner.js",
+    "dev:dashboard": "npm run dev --workspace=admin-dashboard",
+    "test:whatsapp:groups": "node apps/channel-gateway/src/channels/whatsapp/whatsapp.auto-groups.test.js"
+  }
+}
